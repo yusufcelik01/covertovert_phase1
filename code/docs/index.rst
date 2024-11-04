@@ -6,8 +6,7 @@
 Basic ICMP Documentation
 ========================
 
-Please add your names and group ID here by editing `index.rst` in the docs folder.
-
+Authors: Yusuf Celik (2457703) & Yigithan Tamer (2448868)
 
 .. toctree::
    :maxdepth: 2
