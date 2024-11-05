@@ -1,12 +1,6 @@
 import scapy.all as scapy
 import time
 
-#def print_packet(packet):
-#    print(type(packet))
-#    if(type(packet) == scapy.Ether):
-#        if(packet.payload.payload.type == 8):
-#            packet.show()
-
 def is_senders_packet(pkt):
     if type(pkt) == scapy.Ether:
         l3_pkt = pkt.payload
@@ -20,7 +14,7 @@ def is_senders_packet(pkt):
 
 
 while True:
-    pkt_list = scapy.sniff(iface='lo', count = 1)
+    pkt_list = scapy.sniff(iface='eth0', count = 1)
     pkt = pkt_list[0]
 
     if is_senders_packet(pkt):
