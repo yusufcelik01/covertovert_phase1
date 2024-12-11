@@ -8,6 +8,8 @@ Basic ICMP Documentation
 
 Authors: Yusuf Celik (2457703) & Yigithan Tamer (2448868)
 
+**IMPORTANT NOTE:** plase notice that this forked repository has 2 branches namely phase1 and phase2. Each one contains the homework of one phase
+
 .. toctree::
    :maxdepth: 2
    :caption: Contents:
