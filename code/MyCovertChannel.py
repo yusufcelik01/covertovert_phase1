@@ -80,7 +80,23 @@ class MyCovertChannel(CovertChannelBase):
 
         return (ip_w_msg, msg)
 
-    def send(self, log_file_name, mask, destinationIP):
+    def encode_msg(self, msg, inv_bits):
+        encoded_msg = ''
+        inv_len = len(inv_bits)
+
+        for i, c in enumerate(msg):
+            if inv_bits[i % inv_len] == '1':
+                if c == '1':
+                    encoded_msg += '0'
+                else:
+                    encoded_msg += '1'
+            else:
+                encoded_msg += c
+
+        return encoded_msg
+
+
+    def send(self, log_file_name, mask, enc_mask, destinationIP):
         """
         - In this function, you expected to create a random message (using function/s in CovertChannelBase), and send it to the receiver container. Entire sending operations should be handled in this function.
         - After the implementation, please rewrite this comment part to explain your code basically.
@@ -93,9 +109,14 @@ class MyCovertChannel(CovertChannelBase):
 
 
         int_mask = int(mask, 16)
+        int_enc_mask = int(enc_mask, 16)
 
         #generate message
         binary_message = self.generate_random_binary_message_with_logging(log_file_name)
+        encoded_bin_msg = self.encode_msg(binary_message, enc_mask)
+        #print(binary_message)
+        #print(encoded_bin_msg)
+        #print(binary_message== encoded_bin_msg)
 
         #create arp packet and set it's fields
         pkt = l2.Ether() / l2.ARP() / "dummy"
@@ -109,7 +130,7 @@ class MyCovertChannel(CovertChannelBase):
 
         src_ip_int = self.ip_str2int(sourceIP)
         msg_embedded_ip = sourceIP
-        msg = binary_message
+        msg = encoded_bin_msg
 
         while len(msg) > 0:
             msg_embedded_ip, msg = self.embed_msg_to_ip(src_ip_int, int_mask, msg)
@@ -122,17 +143,34 @@ class MyCovertChannel(CovertChannelBase):
 
         
     def check_dot_char(self, mask_int, pkt):
+        inv_len = len(self.inv_mask)
         new_bits = self.extract_msg_from_ip(pkt.psrc, mask_int)
-        self.recently_sniffed_bits += new_bits
+        for c in new_bits:
+            if self.inv_mask[self.next_bit_to_decode % inv_len] == '1':
+                if c == '1':
+                    self.recently_sniffed_bits += '0'
+                else:
+                    self.recently_sniffed_bits += '1'
+
+            else:
+                self.recently_sniffed_bits += c
+            self.next_bit_to_decode += 1
+
+
+
         if len(self.recently_sniffed_bits) > 7:
             c = self.convert_eight_bits_to_character(self.recently_sniffed_bits[:8])
             self.recently_sniffed_bits = self.recently_sniffed_bits[8:]
             if c == '.':
                 return True
+            else:
+                print(c, end='')
         return False
 
-    def receive(self, mask, destinationIP, log_file_name):
+    def receive(self, mask, destinationIP, enc_mask, log_file_name):
         self.recently_sniffed_bits = ''
+        self.inv_mask = enc_mask
+        self.next_bit_to_decode = 0
         self.used_bits_mask = 0xFFFFFFFF
         """
         - After the implementation, please rewrite this comment part to explain your code basically.
@@ -142,12 +180,25 @@ class MyCovertChannel(CovertChannelBase):
         binary_msg = ''
         msg_str = ''
         current_char_bits = ''
+        bit_to_decode = 0
+        inv_len = len(enc_mask)
         for pkt in packets:
             if pkt.pdst != destinationIP:
                 continue
             current_pkt_bits = self.extract_msg_from_ip(pkt.psrc, mask_int)
             #print("I received (ip, bits): ", pkt.psrc, current_pkt_bits)
-            current_char_bits += current_pkt_bits
+            for c in current_pkt_bits:
+                if self.inv_mask[bit_to_decode % inv_len] == '1':
+                    if c == '1':
+                        current_char_bits += '0'
+                    else:
+                        current_char_bits += '1'
+
+                else:
+                    current_char_bits += c
+                bit_to_decode += 1
+            bit_to_decode %= inv_len
+            #current_char_bits += current_pkt_bits
             if(len(current_char_bits) > 7):#a char has arrived
                 char_bits = current_char_bits[:8]
                 c = self.convert_eight_bits_to_character(char_bits)
