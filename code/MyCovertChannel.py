@@ -9,14 +9,19 @@ import pdb
 
 class MyCovertChannel(CovertChannelBase):
     """
-    - You are not allowed to change the file name and class name.
-    - You can edit the class in any way you want (e.g. adding helper functions); however, there must be a "send" and a "receive" function, the covert channel will be triggered by calling these functions.
+    - Contains the sender, receiver and all helper functions for the covert channel
+    - Core functions are: send and receive 
     """
     def __init__(self):
         self.recently_sniffed_bits = ''
         self.used_bits_mask = 0xFFFFFFFF
 
     def ip_int2str(self, intIP):
+        """
+        - takes an IPv4 IP in scapy's string format and converts it to an 32 bit integer
+        - returned number is not very human readable but makes bit operations on IP possible
+        - example: takes \'172.0.168.231\' and returns 2885724391"
+        """
         strBytes = []
         for i in range(4):#4 bytes
             byte = intIP & 0xFF
@@ -29,6 +34,10 @@ class MyCovertChannel(CovertChannelBase):
         return strIP
 
     def ip_str2int(self, strIP):
+        """
+        - takes an IPv4 IP in raw integer type and converts it to scapy's string IP format 
+        - example: takes 2885724391 and returns  \'172.0.168.231\'"
+        """
         strBytes = strIP.split('.')
         intBytes = map(int, strBytes)
 
@@ -40,7 +49,10 @@ class MyCovertChannel(CovertChannelBase):
         return intIP
 
     def extract_msg_from_ip(self, ip, mask):
-        #get string ip and extract binary message
+        """
+        - gets a ip and extracts the bits given in the mask
+        - ip must be in scapy's string ip format where as mask must be integer
+        """
         binary_msg = ''
         int_ip = self.ip_str2int(ip) & mask
 
@@ -61,9 +73,11 @@ class MyCovertChannel(CovertChannelBase):
 
 
     def embed_msg_to_ip(self, ip, mask, msg):
-        #return the unsent part of the message and the message encoded ip
-        #mask and ip must be converted to int format
-        #msg must be in binary string format
+        """
+        - return the message encoded ip and the unsent part of the message
+        - mask and ip must be converted to int format
+        - msg must be in binary string format
+        """
 
         #take out the bits we will use for transmitting the message
         ip_w_msg = ip & (0xFFFFFFFF ^ mask)
@@ -81,6 +95,11 @@ class MyCovertChannel(CovertChannelBase):
         return (ip_w_msg, msg)
 
     def encode_msg(self, msg, inv_bits):
+        """
+        - Takes a message in binary string format and inverts it's bits according to given encoding mask
+        - The bits with value '1' in mask (inv_bits argument) are inverted in msg
+        - If the msg is longer than the mask as it should be in most cases the mask is repeated from the start 
+        """
         encoded_msg = ''
         inv_len = len(inv_bits)
 
@@ -98,9 +117,17 @@ class MyCovertChannel(CovertChannelBase):
 
     def send(self, log_file_name, mask, enc_mask, destinationIP):
         """
-        - In this function, you expected to create a random message (using function/s in CovertChannelBase), and send it to the receiver container. Entire sending operations should be handled in this function.
-        - After the implementation, please rewrite this comment part to explain your code basically.
+        Main function of covert channel sender. Performs the actions in the given order below:
+        - Creates a random binary message and logs it
+        - Encodes the message using the enc_mask 
+        - Creates a generic ARP packet with host machines information to manipulate later
+        - Sends packets by embedding the encoded message into Generic packet
+
+        In these steps only the source IP field in arp is manipulated to transger bits according to given masks
+        Using a mask with more 1 bits would create a channel with higher capacity but also channel may become more suspicious
         """
+
+        #Get host machines info
         iface_name = "eth0"
         eth0IP = arch.get_if_addr(iface_name)
         eth0MAC = arch.get_if_hwaddr(iface_name)
@@ -113,20 +140,16 @@ class MyCovertChannel(CovertChannelBase):
 
         #generate message
         binary_message = self.generate_random_binary_message_with_logging(log_file_name)
-        encoded_bin_msg = self.encode_msg(binary_message, enc_mask)
-        #print(binary_message)
-        #print(encoded_bin_msg)
-        #print(binary_message== encoded_bin_msg)
 
-        #create arp packet and set it's fields
-        pkt = l2.Ether() / l2.ARP() / "dummy"
+        #encode message
+        encoded_bin_msg = self.encode_msg(binary_message, enc_mask)
+
+        #create generic arp packet and set it's fields
+        pkt = l2.Ether() / l2.ARP() / self.generate_random_message()
         pkt.dst = "FF:FF:FF:FF:FF:FF" #broadcast ARP request by setting eth broadcast address
         pkt.hwsrc = eth0MAC
         pkt.psrc= sourceIP
         pkt.pdst = targetIP
-        #pkt.show()
-
-        #pdb.set_trace();#TODO remove
 
         src_ip_int = self.ip_str2int(sourceIP)
         msg_embedded_ip = sourceIP
@@ -134,15 +157,16 @@ class MyCovertChannel(CovertChannelBase):
 
         while len(msg) > 0:
             msg_embedded_ip, msg = self.embed_msg_to_ip(src_ip_int, int_mask, msg)
-            #print("binary_syn_msg", msg)
             pkt.psrc = self.ip_int2str(msg_embedded_ip)
-            #print("pkt src ip: ", pkt.psrc)
             super().send(pkt, interface = iface_name)
 
 
 
         
     def check_dot_char(self, mask_int, pkt):
+        """
+        This a receiver helper function. In order to stop the packet sniffing we must provide a function to scapy's sniff function that will report when a dot is received. This function keeps track of the bits only for the last 8 characters and temporarily decodes and decides if the dot character is received.
+        """
         inv_len = len(self.inv_mask)
         new_bits = self.extract_msg_from_ip(pkt.psrc, mask_int)
         for c in new_bits:
@@ -168,25 +192,28 @@ class MyCovertChannel(CovertChannelBase):
         return False
 
     def receive(self, mask, destinationIP, enc_mask, log_file_name):
+        """
+        Core function of the covert channel's receiver using helper function \'check_dot_char\' sniffs ARP packets until the dot character is receiver. Then decodes the packets with expected destination IP. This destion IP is a parameter and is a form of secret handshake between sender and the receiver
+        """
         self.recently_sniffed_bits = ''
         self.inv_mask = enc_mask
         self.next_bit_to_decode = 0
         self.used_bits_mask = 0xFFFFFFFF
-        """
-        - After the implementation, please rewrite this comment part to explain your code basically.
-        """
         mask_int = int(mask, 16)
+
+        #start sniffing
         packets = sniff(filter="arp", stop_filter = partial(self.check_dot_char, mask_int))
         binary_msg = ''
         msg_str = ''
         current_char_bits = ''
         bit_to_decode = 0
         inv_len = len(enc_mask)
+
+        #decode the message until there are no packets are left or the dot character is received
         for pkt in packets:
             if pkt.pdst != destinationIP:
                 continue
             current_pkt_bits = self.extract_msg_from_ip(pkt.psrc, mask_int)
-            #print("I received (ip, bits): ", pkt.psrc, current_pkt_bits)
             for c in current_pkt_bits:
                 if self.inv_mask[bit_to_decode % inv_len] == '1':
                     if c == '1':
