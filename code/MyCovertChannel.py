@@ -187,8 +187,6 @@ class MyCovertChannel(CovertChannelBase):
             self.recently_sniffed_bits = self.recently_sniffed_bits[8:]
             if c == '.':
                 return True
-            else:
-                print(c, end='')
         return False
 
     def receive(self, mask, destinationIP, enc_mask, log_file_name):
